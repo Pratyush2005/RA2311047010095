@@ -6,7 +6,7 @@
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | `/api/notifications` | View all of your notifications. Paginated. Retrieved with something like `? page=1&limit=20` I’m guessing.
+| GET | `/api/notifications` | View all of your notifications.
 | GET | /api/notifications/:id | Get a single notification by id.
 | POST | `/api/notifications` | Create notification |
 | PATCH | `/api/notifications/:id/read` | Read a single notification.
