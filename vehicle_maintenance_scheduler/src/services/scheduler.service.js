@@ -17,7 +17,7 @@ async function computeSchedule() {
     "backend",
     LOG_LEVELS.INFO,
     "service",
-    `Processing ${depots.length} depots and ${vehicles.length} vehicles`
+    `Processing ${depots.length} depots and ${vehicles.length} vehicle tasks`
   );
 
   if (depots.length === 0) {
@@ -25,54 +25,41 @@ async function computeSchedule() {
     return { schedules: [], summary: { totalDepots: 0, totalImpact: 0 } };
   }
 
+  const allTasks = vehicles.map((v) => ({
+    id: v.TaskID || v.taskId || v.id || v.ID,
+    name: v.TaskName || v.taskName || v.name || `Task-${v.TaskID || v.ID}`,
+    duration: v.Duration || v.duration || v.time || 0,
+    impact: v.Impact || v.impact || v.priority || v.value || 0,
+  }));
+
+  log(
+    "backend",
+    LOG_LEVELS.INFO,
+    "service",
+    `Extracted ${allTasks.length} maintenance tasks from vehicle data`
+  );
+
   const schedules = [];
   let grandTotalImpact = 0;
 
   for (const depot of depots) {
-    const depotId = depot.id || depot.depotId || depot.name;
-    const capacity = depot.mechanicHours || depot.capacity || depot.availableHours || 0;
+    const depotId = depot.ID || depot.id || depot.depotId || depot.name;
+    const capacity = depot.Mechanichours || depot.mechanicHours || depot.capacity || depot.availableHours || 0;
 
     log(
       "backend",
       LOG_LEVELS.INFO,
       "service",
-      `Processing depot "${depotId}" with ${capacity} mechanic hours`
+      `Processing depot ${depotId} with ${capacity} mechanic hours`
     );
 
-    const tasks = [];
-
-    for (const vehicle of vehicles) {
-      const vehicleDepot = vehicle.depotId || vehicle.depot || vehicle.depotName;
-      if (String(vehicleDepot) !== String(depotId)) continue;
-
-      const vehicleTasks = vehicle.maintenanceTasks || vehicle.tasks || [];
-
-      for (const task of vehicleTasks) {
-        tasks.push({
-          id: task.id || task.taskId || `${vehicle.id}-${task.name}`,
-          vehicleId: vehicle.id || vehicle.vehicleId,
-          vehicleName: vehicle.name || vehicle.vehicleId || "Unknown",
-          name: task.name || task.taskName || "Unnamed Task",
-          duration: task.duration || task.time || 0,
-          impact: task.impact || task.priority || task.value || 0,
-        });
-      }
-    }
-
-    log(
-      "backend",
-      LOG_LEVELS.INFO,
-      "service",
-      `Depot "${depotId}": ${tasks.length} tasks available, running knapsack with capacity ${capacity}`
-    );
-
-    const result = knapsack(capacity, tasks);
+    const result = knapsack(capacity, allTasks);
     grandTotalImpact += result.totalImpact;
 
     schedules.push({
       depotId,
       depotCapacity: capacity,
-      totalTasksAvailable: tasks.length,
+      totalTasksAvailable: allTasks.length,
       selectedTasks: result.selectedTasks,
       totalImpact: result.totalImpact,
       totalDurationUsed: result.totalDuration,
@@ -83,7 +70,7 @@ async function computeSchedule() {
       "backend",
       LOG_LEVELS.INFO,
       "service",
-      `Depot "${depotId}": selected ${result.selectedTasks.length}/${tasks.length} tasks, impact=${result.totalImpact}, hours=${result.totalDuration}/${capacity}`
+      `Depot ${depotId}: selected ${result.selectedTasks.length}/${allTasks.length} tasks, impact=${result.totalImpact}, hours=${result.totalDuration}/${capacity}`
     );
   }
 

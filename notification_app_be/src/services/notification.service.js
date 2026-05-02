@@ -73,7 +73,7 @@ async function getPriorityInbox(topN = 10) {
   const notifications = await getNotificationsWithCache();
 
   const unread = notifications.filter((n) => {
-    const isRead = n.isRead ?? n.is_read ?? n.read ?? false;
+    const isRead = n.IsRead ?? n.isRead ?? n.is_read ?? n.Read ?? n.read ?? false;
     return !isRead;
   });
 
@@ -96,7 +96,7 @@ async function getPriorityInbox(topN = 10) {
 async function getUnreadCount() {
   const notifications = await getNotificationsWithCache();
   const unread = notifications.filter((n) => {
-    const isRead = n.isRead ?? n.is_read ?? n.read ?? false;
+    const isRead = n.IsRead ?? n.isRead ?? n.is_read ?? n.Read ?? n.read ?? false;
     return !isRead;
   });
 

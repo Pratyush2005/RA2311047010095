@@ -6,18 +6,17 @@
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | `/api/notifications` | View all of your notifications.
-| GET | /api/notifications/:id | Get a single notification by id.
+| GET | `/api/notifications` | List notifications (paginated, `?page=1&limit=20`) |
+| GET | `/api/notifications/:id` | Get single notification |
 | POST | `/api/notifications` | Create notification |
-| PATCH | `/api/notifications/:id/read` | Read a single notification.
-| PATCH | `/api/notifications` | View all unread notifications
+| PATCH | `/api/notifications/:id/read` | Mark as read |
+| PATCH | `/api/notifications/mark-all-read` | Mark all read for a student |
 | DELETE | `/api/notifications/:id` | Soft-delete |
 | GET | `/api/notifications/unread-count` | Badge count |
-| GET | `/api/notifications/priority-inbox` | All top unread priority inbox notifications. Can be filtered for top N unread with `? top=10`.
-| POST | /api/notifications/invalidate-cache | Force Notification Cache Refresh.
+| GET | `/api/notifications/priority-inbox` | Top N ranked unread (`?top=10`) |
+| POST | `/api/notifications/invalidate-cache` | Force cache refresh |
 
-**Endpoint naming conventions:** All endpoint names are kebab-case nouns, and all request and response body properties are camelCase.
-**HTTP status codes:** Standard HTTP status codes (200, 201, 400, etc.) are used throughout the API.
+**Conventions:** Endpoints use kebab-case nouns. Request/response bodies use camelCase. Standard HTTP codes (200, 201, 400, 404, 500).
 
 ---
 
@@ -25,40 +24,37 @@
 
 **Choice: PostgreSQL (SQL)**
 
-I've written the query in SQL instead of DataFu Java Streams, as it's pretty straightforward to select and group the rows as needed, filtering for student_id and is_read, sorted by created_at. For a PostgreSQL database, I could create a composite index on student_id and is_read, or even a partial index, which would speed up the query. With or without the index, the update statement will be transactional, atomic, consistent, isolated, and durable (ACID compliant), so I'm safe in knowing that I'll update all the student messages to an unread state consistently.
+SQL fits because our queries are highly structured — filter by `student_id`, `is_read`, sort by `created_at`. PostgreSQL provides composite indexes, partial indexes, and ACID transactions for consistent read-status updates.
 
 ```sql
 CREATE TABLE notifications (
-id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-student_id      INTEGER NOT NULL,
-type            VARCHAR(50) NOT NULL DEFAULT 'general',
-title           VARCHAR(255) NOT NULL,
-message         TEXT NOT NULL,
-priority        VARCHAR(20) DEFAULT 'normal',
-is_read         BOOLEAN NOT NULL DEFAULT FALSE,
-read_at         TIMESTAMP WITH TIME ZONE,
-/* OnCreate */kova_object_created_at(){      return "    created_at      TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),";}
-/* updated_at */ TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW() ,
-deleted_at      TIMESTAMP WITH TIME ZONE,
-metadata        JSONB DEFAULT '{}'::jsonb
+    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    student_id      INTEGER NOT NULL,
+    type            VARCHAR(50) NOT NULL DEFAULT 'general',
+    title           VARCHAR(255) NOT NULL,
+    message         TEXT NOT NULL,
+    priority        VARCHAR(20) DEFAULT 'normal',
+    is_read         BOOLEAN NOT NULL DEFAULT FALSE,
+    read_at         TIMESTAMP WITH TIME ZONE,
+    created_at      TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+    updated_at      TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+    deleted_at      TIMESTAMP WITH TIME ZONE,
+    metadata        JSONB DEFAULT '{}'::jsonb
 );
 
 CREATE TABLE notification_delivery_log (
-id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-notification_id UUID NOT NULL REFERENCES notifications(id),
-channel         VARCHAR(20) NOT NULL,
-status          VARCHAR(20) NOT NULL DEFAULT 'pending',
-attempt_count   INTEGER DEFAULT 0,
-last_error      TEXT,
-sent_at         TIMESTAMP WITH TIME ZONE,
-# created_at
-TYPE: TIMESTAMP WITH TIME ZONE
-DEFAULT: created_at
-DESCRIPTION: Timestamp when the row was created.
+    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    notification_id UUID NOT NULL REFERENCES notifications(id),
+    channel         VARCHAR(20) NOT NULL,
+    status          VARCHAR(20) NOT NULL DEFAULT 'pending',
+    attempt_count   INTEGER DEFAULT 0,
+    last_error      TEXT,
+    sent_at         TIMESTAMP WITH TIME ZONE,
+    created_at      TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
 );
 ```
 
-**Scalability**: partition by month of created_at, archive data > 6mo, use read replicas for list queries, PgBouncer for connection pooling.
+**Scalability:** Partition by `created_at` monthly, archive data older than 6 months, use read replicas for list queries, PgBouncer for connection pooling.
 
 ---
 
@@ -66,14 +62,14 @@ DESCRIPTION: Timestamp when the row was created.
 
 **Original (problematic):**
 ```sql
-SELECT * FROM notifications WHERE studentID = 1022 AND isRead = 'f' ORDER BY createdAt DESC;
+SELECT * FROM notifications WHERE studentID = 1042 AND isRead = false ORDER BY createdAt DESC;
 ```
 
-**problems**: SELECT * downloads unwanted blobs, SELECT * without limit downloads too many rows, no index means table is fully scanned, and column names are named in a way that is non PostgreSQL compliant.
+**Issues:** `SELECT *` fetches unnecessary blobs, no `LIMIT` returns unbounded rows, no index means full table scan, column names violate PostgreSQL conventions.
 
 **Indexing strategy:**
 ```sql
-CREATE INDEX idx_notif_student_unread ON notifications (student_id, is_read) DESC;
+CREATE INDEX idx_notif_student_unread ON notifications (student_id, is_read, created_at DESC)
 WHERE is_read = FALSE AND deleted_at IS NULL;
 ```
 
@@ -81,70 +77,67 @@ WHERE is_read = FALSE AND deleted_at IS NULL;
 ```sql
 SELECT id, student_id, type, title, priority, is_read, created_at
 FROM notifications
-Load 24 comments directly (no join required) to analyze their attributes.
+WHERE student_id = 1042 AND is_read = FALSE AND deleted_at IS NULL
 ORDER BY created_at DESC
 LIMIT 20 OFFSET 0;
 ```
 
-Partial index allows indexing only unread portion of the data. The index is much smaller than regular index. Performance changes from O(N) full table scan to O(log N) index lookup.
+The partial index only indexes unread rows (a small fraction of total data), keeping it compact. Query goes from O(N) full scan to O(log N) index lookup.
 
 ---
 
 ## Stage 4 — Performance Improvements
 
-**Caching**: We use an in-memory cache which expires in 30 seconds. We use the following pattern for cache keys: `notif:student:{id}:page:{n}`, and these cache entries are invalidated every time we write to the notifications. In production we use Redis and unread counts expire in 10 seconds.
+**Caching:** In-memory cache with 30s TTL. Cache key pattern: `notif:student:{id}:page:{n}`. Invalidated on writes. For production, Redis with 10s TTL for unread counts.
 
-**Pagination:** Offset-based (simple) - ? page=1&limit=20. cursor-based pagination available for scaled use cases (O(1) for any page).
+**Pagination:** Offset-based for simplicity (`?page=1&limit=20`). Cursor-based available for scale (O(1) for any page).
 
-**Lazy load functionality added**: The first page now loads the top 20 posts and their unread count, and then their body text on the fly when clicked on. Also, subsequent pages are automatically loaded as the user scrolls down the page.
+**Lazy loading:** Initial load fetches top 20 + unread count only. Full notification body fetched on-demand when clicked. Next pages loaded on scroll.
 
-**Trade-offs:**
-Cache: 0ms response, but data could be stale up to 30s. Pagination: bounds response size, but requires multiple requests. Lazy loading: fast initial paint, but delays for items far in list.
+**Trade-offs:** Cache gives 0ms response but data can be stale up to 30s. Pagination bounds response size but requires multiple requests. Lazy loading gives fast initial paint but delays access to older items.
 
 ---
 
 ## Stage 5 — Notify All Fix
 
-**Problem:** Notify all emails are currently generated as a for-loop. One failure per batch is acceptable, but one failure per batch should not kill the whole batch. Instead, the process should be concurrent for all batches to improve performance on large items.
+**Problem:** Current `notify_all` sends emails synchronously in a for-loop. One failure kills the entire batch, and sequential execution is extremely slow at scale.
 
 **Solution architecture:**
 
 ```
-API Server → Producer → Message Queue (RabbitMQ) → Consumer Workers → External services (Email/Push/SMS etc)
-→ Retry Queue → Dead Letter Queue
+API Server → Producer → Message Queue (RabbitMQ) → Consumer Workers → Email/Push/SMS
+                                                  → Retry Queue → Dead Letter Queue
 ```
 
-**Why RabbitMQ:** RabbitMQ has built-in retry/dead-letter queues and per-message acknowledgment. Kafka is meant for log streaming (not task distribution like RabbitMQ).
+**Why RabbitMQ:** Built-in retry/dead-letter queues, per-message acknowledgment, designed for task distribution (vs Kafka's log streaming).
 
-**Producer**: Send 100 messages, then continue sending and the function will return immediately. ** Workers**: Each message is processed separately. Therefore, a failed 1 email will not affect other emails.
+**Producer** batches messages (100 at a time) into the queue and returns immediately. **Workers** process each message independently — one email failure doesn't affect others. DB write and email sending should NOT be synchronous — they should be decoupled via the message queue.
 
-**Our retry mechanism is** exponential backoff, immediate retry, then 30s, 2min, and then dead letter queue after 3 failures.
+**Retry mechanism** uses exponential backoff: immediate → 30s → 2min → dead letter queue after 3 failures.
 
 **Separation of concerns:**
 
 | Component | Responsibility |
 |-----------|---------------|
-| API Server | Processes client requests and validates client input.
-| Producer | Fan out messages to multiple queues.
+| API Server | Accept requests, validate input |
+| Producer | Fan out messages to queue |
 | Email/Push/SMS Workers | Channel-specific delivery only |
-| Retry Manager | Manage failed messages & direct to Dead Letter Queue (DLQ) |
-| Delivery Logger | Exists as a notification delivery logger.
-
-**Stellar Delivery**: Fault isolation, horizontal scaling, backpressure absorption, full delivery observability.
+| Retry Manager | Failure handling and DLQ routing |
+| Delivery Logger | Track status in `notification_delivery_log` |
 
 ---
 
 ## Stage 6 — Priority Inbox
 
-These commands get the notifications dynamically from: GET /evaluation-service/notifications. This means these commands don't store anything in DB.
+Fetches notifications dynamically from `GET /evaluation-service/notifications` (no DB storage).
 
 **Ranking formula:**
 ```
-The score for an item is a number that is calculated based on the type weight of the type of the item and then increased by the number of milliseconds in a certain area of the item.
+score = (typeWeight × 1000) + (timestamp_ms / 1,000,000)
 ```
 
-The ×1000 multiplier in the recency ranking is set up so that type always trumps recency. In the recency ranking, items of the same type are ordered by newest first. Items of different types are ordered by the highest type first. Items of the lowest type are ordered by oldest first.
+The ×1000 multiplier ensures type importance always dominates recency. Within the same type tier, newer items rank higher.
 
-**Type weight**: urgent/exam (10pt), academic (9pt), alert/assignment (8pt), warning (7pt), system message (6pt), reminder/event (5pt), update (4pt)
+**Type weights:** result/placement=10, academic=9, alert/assignment=8, warning=7, system=6, reminder/event=5, update=4, info=3, general=2, promotional=1.
 
-**Efficient updates**: Our 30s in-memory cache prevents many of these calls from ever hitting the API, and we also have a POST /invalidate-cache endpoint that you can update the cache with after certain user actions. For example, the endpoint for the number of unread messages is very efficient and doesn’t compute the ranking for you.
+**Efficient updates:** 30s in-memory cache prevents redundant API calls. `POST /invalidate-cache` endpoint allows targeted refresh after user actions. Unread count endpoint is lightweight with no ranking computation.

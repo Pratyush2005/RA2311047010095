@@ -1,10 +1,10 @@
 const { TYPE_IMPORTANCE, DEFAULT_TYPE_WEIGHT } = require("./config");
 
 function computePriorityScore(notification) {
-  const type = (notification.type || "general").toLowerCase();
+  const type = (notification.Type || notification.type || "general").toLowerCase();
   const typeWeight = TYPE_IMPORTANCE[type] || DEFAULT_TYPE_WEIGHT;
 
-  const createdAt = notification.createdAt || notification.created_at || notification.timestamp;
+  const createdAt = notification.Timestamp || notification.createdAt || notification.created_at || notification.timestamp;
   const timestamp = createdAt ? new Date(createdAt).getTime() : 0;
 
   const recencyScore = timestamp / 1_000_000;
