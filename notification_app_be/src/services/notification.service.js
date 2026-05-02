@@ -1,4 +1,4 @@
-const { fetchNotifications } = require("./api.service");
+const { fetchNotifications } = require("../repository/notification.repository");
 const { rankNotifications } = require("../utils/priorityRanker");
 const { log, LOG_LEVELS } = require("logging-middleware");
 

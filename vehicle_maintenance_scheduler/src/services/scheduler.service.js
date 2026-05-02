@@ -1,4 +1,4 @@
-const { fetchDepots, fetchVehicles } = require("./api.service");
+const { fetchDepots, fetchVehicles } = require("../repository/depot.repository");
 const { knapsack } = require("../utils/knapsack");
 const { log, LOG_LEVELS } = require("logging-middleware");
 

@@ -8,7 +8,7 @@ const HEADERS = {
 };
 
 async function fetchDepots() {
-  log("backend", LOG_LEVELS.INFO, "service", "Fetching depots from external API");
+  log("backend", LOG_LEVELS.INFO, "repository", "Fetching depots from external API");
 
   try {
     const response = await axios.get(`${BASE_URL}/evaluation-service/depots`, {
@@ -19,7 +19,7 @@ async function fetchDepots() {
     log(
       "backend",
       LOG_LEVELS.INFO,
-      "service",
+      "repository",
       `Successfully fetched ${Array.isArray(response.data) ? response.data.length : "unknown"} depots`
     );
 
@@ -28,7 +28,7 @@ async function fetchDepots() {
     log(
       "backend",
       LOG_LEVELS.ERROR,
-      "service",
+      "repository",
       `Failed to fetch depots: ${err.message}`
     );
     throw new Error(`Depot API call failed: ${err.message}`);
@@ -36,7 +36,7 @@ async function fetchDepots() {
 }
 
 async function fetchVehicles() {
-  log("backend", LOG_LEVELS.INFO, "service", "Fetching vehicles from external API");
+  log("backend", LOG_LEVELS.INFO, "repository", "Fetching vehicles from external API");
 
   try {
     const response = await axios.get(`${BASE_URL}/evaluation-service/vehicles`, {
@@ -47,8 +47,8 @@ async function fetchVehicles() {
     log(
       "backend",
       LOG_LEVELS.INFO,
-      "service",
-      `Successfully fetched vehicles data`
+      "repository",
+      "Successfully fetched vehicles data"
     );
 
     return response.data;
@@ -56,7 +56,7 @@ async function fetchVehicles() {
     log(
       "backend",
       LOG_LEVELS.ERROR,
-      "service",
+      "repository",
       `Failed to fetch vehicles: ${err.message}`
     );
     throw new Error(`Vehicles API call failed: ${err.message}`);

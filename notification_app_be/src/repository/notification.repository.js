@@ -11,7 +11,7 @@ async function fetchNotifications() {
   log(
     "backend",
     LOG_LEVELS.INFO,
-    "service",
+    "repository",
     "Fetching notifications from external API"
   );
 
@@ -27,8 +27,8 @@ async function fetchNotifications() {
     log(
       "backend",
       LOG_LEVELS.INFO,
-      "service",
-      `Successfully fetched notifications`
+      "repository",
+      "Successfully fetched notifications"
     );
 
     return response.data;
@@ -36,7 +36,7 @@ async function fetchNotifications() {
     log(
       "backend",
       LOG_LEVELS.ERROR,
-      "service",
+      "repository",
       `Failed to fetch notifications: ${err.message}`
     );
     throw new Error(`Notifications API call failed: ${err.message}`);
