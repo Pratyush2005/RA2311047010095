@@ -1,0 +1,16 @@
+{
+  "name": "notification-app-be",
+  "version": "1.0.0",
+  "description": "Notification system backend with priority inbox and Stage 1-6 implementation",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "axios": "^1.7.2",
+    "cors": "^2.8.5",
+    "logging-middleware": "file:../logging_middleware"
+  }
+}
